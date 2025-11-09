@@ -1,131 +1,44 @@
 import React, { useState, useCallback } from 'react';
+import { Play, CheckCircle, FileText, DollarSign, Package, Upload, Calendar, X, LogOut } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
-import { Play, CheckCircle, FileText, DollarSign, Package, Upload, Calendar, X } from 'lucide-react';
+import axios from 'axios';
 
-// --- Constants moved outside component ---
-// This static data doesn't need to be redefined on every render.
-const productDatabase = [
-  { sku: "LT-XLPE-AL-3.5C-1.1KV", name: "Aluminum XLPE Power Cable 3.5 Core 1.1kV",
-    specs: { voltage: "1.1 kV", cores: "3.5 Core", conductor: "Aluminum", insulation: "XLPE", armoring: "Steel Wire Armored", standard: "IS 7098 Part 1" }, basePrice: 450 },
-  { sku: "CTRL-CU-4C-PVC-1.1KV", name: "Copper Control Cable 4 Core PVC 1.1kV",
-    specs: { voltage: "1.1 kV", cores: "4 Core", conductor: "Copper", insulation: "PVC", armoring: "Unarmored", standard: "IS 1554 Part 1" }, basePrice: 320 },
-  { sku: "BW-CU-1C-PVC-1.1KV", name: "Copper Building Wire Single Core PVC 1.1kV",
-    specs: { voltage: "1.1 kV", cores: "Single Core", conductor: "Copper", insulation: "PVC", armoring: "Unarmored", standard: "IS 694" }, basePrice: 180 }
-];
-
-const testPricing = { "Type Test": 50000, "Routine Test": 15000, "Sample Test": 8000, "Installation Test": 12000 };
-
-// --- Pure helper functions moved outside component ---
-// These functions don't depend on component state, so they can be defined globally.
-
-const calculateSpecMatch = (rfpSpecs, productSpecs) => {
-  let totalSpecs = 0;
-  let matchedSpecs = 0;
-  Object.keys(rfpSpecs).forEach(key => {
-    totalSpecs++;
-    if (productSpecs[key]) {
-      const rfpValue = String(rfpSpecs[key]).toLowerCase().trim();
-      const productValue = String(productSpecs[key]).toLowerCase().trim();
-      if (rfpValue === productValue) {
-        matchedSpecs++;
-      } else if (rfpValue.includes(productValue) || productValue.includes(rfpValue)) {
-        matchedSpecs += 0.7;
-      }
-    }
-  });
-  return totalSpecs > 0 ? Math.round((matchedSpecs / totalSpecs) * 100) : 0;
-};
-
+// --- ALL CONSTANTS, HELPER FUNCTIONS (calculateSpecMatch, parsePDFFile, etc.) ARE REMOVED ---
+// --- The backend handles all of this now ---
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-const parseCSVFile = async (file) => {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = e.target.result;
-      const lines = text.split('\n').filter(line => line.trim());
-      const products = [];
-      for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(',').map(v => v.trim());
-        if (values.length >= 3) {
-          products.push({
-            name: values[0] || 'Unknown Product',
-            quantity: parseInt(values[1]) || 0,
-            unit: values[2] || 'units',
-            specs: { voltage: "1.1 kV", cores: "4 Core", conductor: "Copper", insulation: "PVC", standard: "IS 1554 Part 1" }
-          });
-        }
-      }
-      resolve(products);
-    };
-    reader.readAsText(file);
-  });
-};
-
-const parsePDFFile = async () => {
-  // This is still a mock, but it's now defined outside the component
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve([
-        { name: "Low Voltage Power Cable", quantity: 5000, unit: "meters",
-          specs: { voltage: "1.1 kV", cores: "3.5 Core", conductor: "Aluminum", insulation: "XLPE", armoring: "Steel Wire", standard: "IS 7098 Part 1" } },
-        { name: "Control Cable", quantity: 3000, unit: "meters",
-          specs: { voltage: "1.1 kV", cores: "4 Core", conductor: "Copper", insulation: "PVC", standard: "IS 1554 Part 1" } },
-        { name: "Building Wire", quantity: 10000, unit: "meters",
-          specs: { voltage: "1.1 kV", cores: "Single Core", conductor: "Copper", insulation: "PVC", standard: "IS 694" } }
-      ]);
-    }, 1000);
-  });
-};
-
-
-// --- React Component ---
 const RFPAgentSystem = () => {
+  const { token, logout } = useAuth();
+
   const [isRunning, setIsRunning] = useState(false);
-  const [currentStep, setCurrentStep] = useState(0);
+  const [currentStep, setCurrentStep] = useState(0); // We'll just fake this
   const [logs, setLogs] = useState([]);
   const [finalResponse, setFinalResponse] = useState(null);
-  const [uploadedFile, setUploadedFile] = useState(null);
+
+  const [rfpUrl, setRfpUrl] = useState('http://localhost:5173/rfp-detail-cables.html'); // <-- Default to dummy site
   const [rfpDeadline, setRfpDeadline] = useState('');
-  const [rfpTitle, setRfpTitle] = useState('');
-  const [rfpOrganization, setRfpOrganization] = useState('');
+  const [rfpTitle, setRfpTitle] = useState('Power Distribution Network'); // <-- Default
+  const [rfpOrganization, setRfpOrganization] = useState('Delhi Metro'); // <-- Default
   const [showUploadForm, setShowUploadForm] = useState(true);
 
-  // --- State-dependent functions wrapped in useCallback ---
-  
-  // Wrapped in useCallback. Uses functional update for setLogs, so dependencies are empty.
   const addLog = useCallback((agent, message, type) => {
     setLogs(prev => [...prev, { agent, message, type: type || 'info', timestamp: new Date().toLocaleTimeString() }]);
-  }, []); // No dependencies needed for functional state updates
+  }, []);
 
-  // Wrapped in useCallback.
-  const handleFileUpload = useCallback((event) => {
-    const file = event.target.files[0];
-    if (file) {
-      if (file.type === 'text/csv' || file.type === 'application/pdf' || file.name.endsWith('.csv') || file.name.endsWith('.pdf')) {
-        setUploadedFile(file);
-      } else {
-        alert('Please upload a CSV or PDF file only');
-      }
-    }
-  }, []); // No dependencies needed as it only calls setUploadedFile
-
-  // Wrapped in useCallback.
   const resetSystem = useCallback(() => {
-    setUploadedFile(null);
+    setRfpUrl('http://localhost:5173/rfp-detail-cables.html');
     setRfpDeadline('');
-    setRfpTitle('');
-    setRfpOrganization('');
+    setRfpTitle('Power Distribution Network');
+    setRfpOrganization('Delhi Metro');
     setShowUploadForm(true);
     setLogs([]);
     setCurrentStep(0);
     setFinalResponse(null);
-  }, []); // No dependencies needed as it only calls setters
+  }, []);
 
-  // Wrapped in useCallback. This is the main function.
-  // It depends on the state variables it reads and the callback functions it calls.
+  // --- UPDATED runAgentSystem function ---
   const runAgentSystem = useCallback(async () => {
-    if (!uploadedFile) { alert('Please upload an RFP file'); return; }
+    if (!rfpUrl) { alert('Please provide an RFP URL'); return; }
     if (!rfpDeadline) { alert('Please set the RFP deadline'); return; }
     if (!rfpTitle) { alert('Please enter the RFP title'); return; }
 
@@ -136,124 +49,52 @@ const RFPAgentSystem = () => {
     setShowUploadForm(false);
 
     try {
-      setCurrentStep(1);
       addLog('Main Agent', 'Initializing RFP Response System...', 'success');
-      addLog('Main Agent', 'Processing uploaded file: ' + uploadedFile.name, 'info');
-      await sleep(1000);
+      setCurrentStep(1);
+      addLog('Scraper Agent', 'Accessing URL: ' + rfpUrl, 'info');
 
-      let products = [];
-      if (uploadedFile.name.endsWith('.csv')) {
-        addLog('Main Agent', 'Parsing CSV file...', 'info');
-        products = await parseCSVFile(uploadedFile); // Using external function
-      } else {
-        addLog('Main Agent', 'Extracting data from PDF file...', 'info');
-        products = await parsePDFFile(); // Using external function
-      }
+      // --- SINGLE API CALL TO DO EVERYTHING ---
+      const response = await axios.post('/api/scrape/process',
+        { rfpUrl, rfpTitle, rfpOrganization, rfpDeadline },
+        { headers: { 'x-auth-token': token } }
+      );
 
-      addLog('Main Agent', 'Extracted ' + products.length + ' products from RFP document', 'success');
-      await sleep(800);
+      // The backend did all the work. We just get the final result.
+      const finalResult = response.data;
 
-      const selectedRFP = {
-        id: 'RFP-' + new Date().getFullYear() + '-' + Math.floor(Math.random() * 1000).toString().padStart(3, '0'),
-        title: rfpTitle, // From state
-        organization: rfpOrganization || 'Organization Not Specified', // From state
-        dueDate: rfpDeadline, // From state
-        fileName: uploadedFile.name, // From state
-        products: products,
-        tests: ["Type Test", "Routine Test", "Sample Test", "Installation Test"]
-      };
-
+      // Simulate the agent flow for the UI
+      addLog('Scraper Agent', 'RFP data scraped and parsed.', 'success');
+      await sleep(500);
       setCurrentStep(2);
-      addLog('Main Agent', 'RFP Details Confirmed', 'success');
-      addLog('Main Agent', '- Title: ' + selectedRFP.title, 'info');
-      
-      const today = new Date();
-      const deadline = new Date(selectedRFP.dueDate);
-      const daysRemaining = Math.ceil((deadline - today) / (1000 * 60 * 60 * 24));
-      addLog('Main Agent', '- Days remaining: ' + daysRemaining + ' days', daysRemaining < 7 ? 'warning' : 'info');
-      await sleep(1000);
-
+      addLog('Technical Agent', 'Matching against MongoDB... (using "ML" string similarity)', 'info');
+      await sleep(500);
       setCurrentStep(3);
-      addLog('Technical Agent', 'Analyzing product specifications...', 'info');
-      await sleep(1500);
-
-      const technicalMatches = [];
-      for (const rfpProduct of selectedRFP.products) {
-        addLog('Technical Agent', 'Matching: ' + rfpProduct.name, 'info');
-        await sleep(800);
-        const matches = productDatabase.map(product => ({ ...product, matchScore: calculateSpecMatch(rfpProduct.specs, product.specs) })) // Using external function
-          .sort((a, b) => b.matchScore - a.matchScore).slice(0, 3);
-        matches.forEach((match, idx) => {
-          addLog('Technical Agent', '  Option ' + (idx + 1) + ': ' + match.sku + ' - Match: ' + match.matchScore + '%', match.matchScore >= 80 ? 'success' : 'warning');
-        });
-        technicalMatches.push({ rfpProduct, selectedSKU: matches[0] });
-        await sleep(500);
-      }
-
-      addLog('Technical Agent', 'Product matching completed', 'success');
-      await sleep(1000);
-
-      setCurrentStep(4);
       addLog('Pricing Agent', 'Calculating costs...', 'info');
-      await sleep(1500);
-
-      let totalMaterialCost = 0;
-      let totalTestCost = 0;
-      technicalMatches.forEach(match => {
-        const materialCost = match.selectedSKU.basePrice * match.rfpProduct.quantity;
-        totalMaterialCost += materialCost;
-      });
-
-      selectedRFP.tests.forEach(test => {
-        totalTestCost += testPricing[test] || 0;
-      });
-
-      addLog('Pricing Agent', 'Total Material Cost: ₹' + totalMaterialCost.toLocaleString(), 'success');
-      addLog('Pricing Agent', 'Total Test Cost: ₹' + totalTestCost.toLocaleString(), 'success');
-      await sleep(1000);
-
+      await sleep(500);
+      setCurrentStep(4);
+      addLog('AI Agent', 'Generating final summary and recommendations...', 'info');
+      await sleep(1000); // Simulate AI thinking time
       setCurrentStep(5);
-      addLog('Main Agent', 'Consolidating RFP response...', 'info');
-      await sleep(1500);
+      addLog('Consolidation Agent', 'Final response generated.', 'success');
+      setCurrentStep(5);
 
-      const finalRFPResponse = {
-        rfpId: selectedRFP.id,
-        rfpTitle: selectedRFP.title,
-        organization: selectedRFP.organization,
-        dueDate: selectedRFP.dueDate,
-        fileName: selectedRFP.fileName,
-        daysRemaining,
-        products: technicalMatches.map(match => ({
-          rfpItem: match.rfpProduct.name,
-          quantity: match.rfpProduct.quantity,
-          unit: match.rfpProduct.unit,
-          recommendedSKU: match.selectedSKU.sku,
-          skuName: match.selectedSKU.name,
-          matchPercentage: match.selectedSKU.matchScore,
-          unitPrice: match.selectedSKU.basePrice,
-          totalPrice: match.selectedSKU.basePrice * match.rfpProduct.quantity
-        })),
-        tests: selectedRFP.tests.map(test => ({ testName: test, cost: testPricing[test] })),
-        pricing: { materialCost: totalMaterialCost, testCost: totalTestCost, totalCost: totalMaterialCost + totalTestCost }
-      };
+      setFinalResponse(finalResult);
 
-      setFinalResponse(finalRFPResponse);
-      addLog('Main Agent', 'RFP Response successfully consolidated', 'success');
     } catch (error) {
-      addLog('System', 'Error: ' + error.message, 'error');
+      const errorMsg = error.response?.data?.msg || error.message;
+      addLog('System', 'Error: ' + errorMsg, 'error');
     } finally {
       setIsRunning(false);
     }
   }, [
-    // Dependencies: state variables it READS and callbacks it CALLS
-    uploadedFile, 
-    rfpDeadline, 
-    rfpTitle, 
-    rfpOrganization, 
-    addLog 
+    rfpUrl,
+    rfpDeadline,
+    rfpTitle,
+    rfpOrganization,
+    addLog,
+    token
   ]);
 
-  // --- JSX (No changes needed here) ---
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
       <div className="max-w-7xl mx-auto">
@@ -265,26 +106,19 @@ const RFPAgentSystem = () => {
         {showUploadForm && (
           <div className="bg-white rounded-lg shadow-xl p-8 mb-6">
             <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-              <Upload className="text-indigo-600" />
-              Upload RFP Document
+              <FileText className="text-indigo-600" />
+              Process New RFP
             </h2>
             <div className="space-y-6">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">RFP Document (CSV or PDF)</label>
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-indigo-500 transition-colors">
-                  <input type="file" accept=".csv,.pdf" onChange={handleFileUpload} className="hidden" id="file-upload" />
-                  <label htmlFor="file-upload" className="cursor-pointer">
-                    <Upload className="mx-auto text-gray-400 mb-2" size={40} />
-                    <p className="text-gray-600">Click to upload</p>
-                    <p className="text-sm text-gray-500 mt-1">CSV or PDF files only</p>
-                  </label>
-                  {uploadedFile && (
-                    <div className="mt-4 flex items-center justify-center gap-2 text-green-600">
-                      <CheckCircle size={20} />
-                      <span className="font-medium">{uploadedFile.name}</span>
-                    </div>
-                  )}
-                </div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">RFP URL</label>
+                <input
+                  type="text"
+                  value={rfpUrl}
+                  onChange={(e) => setRfpUrl(e.target.value)}
+                  placeholder="e.g., http://localhost:5173/dummy-rfp.html"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                />
               </div>
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">RFP Title</label>
@@ -308,9 +142,8 @@ const RFPAgentSystem = () => {
                 </div>
               </div>
               <button onClick={runAgentSystem} disabled={isRunning}
-                className={`w-full flex items-center justify-center gap-2 px-6 py-4 rounded-lg font-semibold text-lg transition-all ${
-                  isRunning ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg'
-                }`}>
+                className={`w-full flex items-center justify-center gap-2 px-6 py-4 rounded-lg font-semibold text-lg transition-all ${isRunning ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg'
+                  }`}>
                 <Play size={24} />
                 {isRunning ? 'Processing...' : 'Process RFP'}
               </button>
@@ -330,16 +163,15 @@ const RFPAgentSystem = () => {
               </div>
               <div className="flex items-center justify-between">
                 {[
-                  { num: 1, name: 'File Processing' },
-                  { num: 2, name: 'Main Agent' },
-                  { num: 3, name: 'Technical Agent' },
-                  { num: 4, name: 'Pricing Agent' },
-                  { num: 5, name: 'Consolidation' }
+                  { num: 1, name: 'Scraping' },
+                  { num: 2, name: 'Matching (ML)' },
+                  { num: 3, name: 'Pricing' },
+                  { num: 4, name: 'AI Summary' },
+                  { num: 5, name: 'Done' }
                 ].map((step, idx) => (
                   <div key={idx} className="flex flex-col items-center flex-1">
-                    <div className={`w-16 h-16 rounded-full flex items-center justify-center transition-all ${
-                      currentStep > step.num ? 'bg-green-500' : currentStep === step.num ? 'bg-indigo-600' : 'bg-gray-300'
-                    }`}>
+                    <div className={`w-16 h-16 rounded-full flex items-center justify-center transition-all ${currentStep > step.num ? 'bg-green-500' : currentStep === step.num ? 'bg-indigo-600' : 'bg-gray-300'
+                      }`}>
                       <span className="text-white font-bold">{step.num}</span>
                     </div>
                     <span className="text-sm font-medium mt-2 text-center">{step.name}</span>
@@ -416,7 +248,10 @@ const RFPAgentSystem = () => {
                         <td className="px-4 py-3">{product.quantity} {product.unit}</td>
                         <td className="px-4 py-3">{product.recommendedSKU}</td>
                         <td className="px-4 py-3 text-center">
-                          <span className="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
+                          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${product.matchPercentage >= 80 ? 'bg-green-100 text-green-800' :
+                              product.matchPercentage >= 50 ? 'bg-yellow-100 text-yellow-800' :
+                                'bg-red-100 text-red-800'
+                            }`}>
                             {product.matchPercentage}%
                           </span>
                         </td>
